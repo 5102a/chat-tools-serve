@@ -1,0 +1,134 @@
+import gc
+from fastapi import FastAPI, Request
+import uvicorn
+import json
+import datetime
+import time as t
+import torch
+import argparse
+from models.loader import loaderLLM
+
+DEVICE = "cuda"
+DEVICE_ID = "0"
+CUDA_DEVICE = f"{DEVICE}:{DEVICE_ID}" if DEVICE_ID else DEVICE
+
+
+def torch_gc():
+    if torch.cuda.is_available():
+        with torch.cuda.device(CUDA_DEVICE):
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
+
+
+def torch_unload():
+    global model, tokenizer
+    model = tokenizer = None
+    print(f'Memory cached: {torch.cuda.memory_reserved()}')
+    print("清理显存")
+    gc.collect()
+    if torch.cuda.is_available():
+        with torch.cuda.device(CUDA_DEVICE):
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
+            torch.cuda.reset_peak_memory_stats()
+    print(f'Memory cached: {torch.cuda.memory_reserved()}')
+
+
+app = FastAPI()
+
+
+@app.post("/config")
+async def apply_config(request: Request):
+    global model, tokenizer
+    json_post_raw = await request.json()
+    json_post = json.dumps(json_post_raw)
+    json_post_list = json.loads(json_post)
+
+    use_checkpoint = json_post_list.get('use_checkpoint') or False
+    ptuning_checkpoint = json_post_list.get(
+        'ptuning_checkpoint') or args.ptuning_checkpoint
+    pre_seq_len = json_post_list.get('pre_seq_len') or 1400
+    use_agent = json_post_list.get('use_agent') or False
+    num_gpus = json_post_list.get('num_gpus') or 1
+    use_env = json_post_list.get('use_env') or False
+
+    if use_env:
+        use_checkpoint = args.use_checkpoint
+        ptuning_checkpoint = args.ptuning_checkpoint
+        pre_seq_len = args.pre_seq_len
+        use_agent = args.use_agent
+        num_gpus = args.num_gpus
+
+    print("[CONFIG]" + "\nnum_gpus:" + str(num_gpus) + "\nuse_checkpoint:" + str(use_checkpoint) +
+          "\nuse_agent:" + str(use_agent) + "\nptuning_checkpoint:" + ptuning_checkpoint + "\npre_seq_len:" + str(pre_seq_len))
+
+    torch_unload()
+    torch_unload()
+
+    model, tokenizer = loaderLLM("THUDM/chatglm2-6b", num_gpus=num_gpus, use_checkpoint=use_checkpoint,
+                                 ptuning_checkpoint=ptuning_checkpoint, pre_seq_len=pre_seq_len, use_agent=use_agent)
+
+    now = datetime.datetime.now()
+    time = now.strftime("%Y-%m-%d %H:%M:%S")
+    answer = {
+        "msg": "ok",
+        "status": 200,
+        "time": time
+    }
+    return answer
+
+
+@app.post("/")
+async def create_item(request: Request):
+    global model, tokenizer
+    json_post_raw = await request.json()
+    json_post = json.dumps(json_post_raw)
+    json_post_list = json.loads(json_post)
+    prompt = json_post_list.get('prompt')
+    history = json_post_list.get('history')
+    max_length = json_post_list.get('max_length')
+    top_p = json_post_list.get('top_p')
+    temperature = json_post_list.get('temperature')
+
+    start = t.time()
+    response, history = model.chat(tokenizer,
+                                   prompt,
+                                   history=history or [],
+                                   max_length=max_length if max_length else 2048,
+                                   top_p=top_p if top_p else 0.7,
+                                   temperature=temperature if temperature else 0.95)
+    end = t.time()
+    now = datetime.datetime.now()
+    time = now.strftime("%Y-%m-%d %H:%M:%S")
+    answer = {
+        "response": response,
+        "history": history,
+        "status": 200,
+        "time": time,
+        "cost": end - start
+    }
+    log = "[" + time + "][" + str(end - start) + "]\n" + 'prompt:\n' + \
+        prompt + '\nresponse:\n' + repr(response)
+    print(log)
+    torch_gc()
+    return answer
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--num_gpus", type=int, default=1)
+    parser.add_argument("--use_checkpoint", type=bool, default=False)
+    parser.add_argument("--ptuning_checkpoint", type=str,
+                        default="ptuning/output/jsongen-chatglm2-6b-pt-1400-2e-2/checkpoint-6000")
+    parser.add_argument("--pre_seq_len", type=int, default=1400)
+    parser.add_argument("--use_agent", type=bool, default=False)
+    args = parser.parse_args()
+
+    print("[ARGS]" + "\nnum_gpus:" + str(args.num_gpus) + "\nuse_checkpoint:" + str(args.use_checkpoint) +
+          "\nuse_agent:" + str(args.use_agent) + "\nptuning_checkpoint:" + args.ptuning_checkpoint + "\npre_seq_len:" + str(args.pre_seq_len))
+
+    model, tokenizer = loaderLLM("THUDM/chatglm2-6b", num_gpus=args.num_gpus, use_checkpoint=args.use_checkpoint,
+                                 ptuning_checkpoint=args.ptuning_checkpoint, pre_seq_len=args.pre_seq_len, use_agent=args.use_agent)
+
+    uvicorn.run(app, host='0.0.0.0', port=args.port, workers=1)
