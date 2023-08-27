@@ -47,7 +47,7 @@ from transformers import pipeline
 from langchain.agents.agent_toolkits import create_retriever_tool
 from langchain.agents.agent_toolkits import create_conversational_retrieval_agent
 
-from tools.agents.tts.vits import Vits
+from tools.agents.vits.agent import Vits
 os.environ["LANGCHAIN_TRACING"] = "true"
 docstore = DocstoreExplorer(Wikipedia())
 
@@ -220,7 +220,7 @@ def GenerateImageWrapper(prompt):
 
 
 store = DocumentLoader()
-store.load_dir_files("./documents")
+# store.load_dir_files("./documents")
 
 
 def FileLoaderWrapper(prompt):
