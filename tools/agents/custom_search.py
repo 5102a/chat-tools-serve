@@ -80,7 +80,7 @@ class DeepSearch:
                 item_str = f"{title}: {description}"
                 result_arr = result_arr + [item_str]
                 count_index += 1
-                if count_index >= 4:
+                if count_index >= 3:
                     break
             result_str = " ".join(result_arr)
             return result_str

@@ -17,9 +17,9 @@ from langchain.chat_models import ChatOpenAI
 from typing import List, Union
 from langchain.schema import AgentAction, AgentFinish, HumanMessage, SystemMessage
 from langchain.schema.prompt import PromptValue
-from agents.custom_search import DeepSearch
-from agents.stable_diffusion import GenerateImage
-from agents.loader import Chat_By_Document, DocumentLoader
+from tools.agents.custom_search import DeepSearch
+from tools.agents.stable_diffusion import GenerateImage
+from tools.agents.loader import Chat_By_Document, DocumentLoader
 
 from langchain import OpenAI, Wikipedia
 from langchain.agents import initialize_agent, Tool
@@ -46,6 +46,8 @@ import os
 from transformers import pipeline
 from langchain.agents.agent_toolkits import create_retriever_tool
 from langchain.agents.agent_toolkits import create_conversational_retrieval_agent
+
+from tools.agents.tts.vits import Vits
 os.environ["LANGCHAIN_TRACING"] = "true"
 docstore = DocstoreExplorer(Wikipedia())
 
@@ -109,7 +111,8 @@ Begin!
 Question: {input}{agent_scratchpad}"""
 
 # Set up a prompt template
-stop = ["Observation:\n", "Observation:"]
+stop = ["Observation:", "Observation:\n",
+        "<|im_end|>", "<|endoftext|>", "<|im_start|>"]
 llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0.2,
                  request_timeout=60000, streaming=True)
 
@@ -146,7 +149,7 @@ class CustomPromptTemplate(BasePromptTemplate):
         thoughts = ""
         for action, observation in intermediate_steps:
             thoughts += '\n' + action.log
-            thoughts += f"{observation}"
+            thoughts += f"Observation: {observation}"
         # Set the agent_scratchpad variable to that value
         kwargs["agent_scratchpad"] = thoughts
         # Create a tools variable from the list of tools provided
@@ -202,17 +205,17 @@ def GenerateImageWrapper(prompt):
     if prompt == "":
         return ""
 
-    sd_flag = "stable diffusion"
-    if prompt.find(sd_flag) == -1:
-        translator = pipeline(
-            "translation", model="Helsinki-NLP/opus-mt-zh-en")
-        query = translator(prompt)[0]['translation_text']
-        q = query.split(',')
-        set_len = len(set(q))
-        query = prompt if set_len < (len(q) - 5) else query
-    else:
-        query = prompt.split(sd_flag)[1]
-
+    # sd_flag = "stable diffusion"
+    # if prompt.find(sd_flag) == -1:
+    #     translator = pipeline(
+    #         "translation", model="Helsinki-NLP/opus-mt-zh-en")
+    #     query = translator(prompt)[0]['translation_text']
+    #     q = query.split(',')
+    #     set_len = len(set(q))
+    #     query = prompt if set_len < (len(q) - 5) else query
+    # else:
+    #     query = prompt.split(sd_flag)[1]
+    query = prompt
     return GenerateImage.gen(query)
 
 
@@ -248,6 +251,20 @@ def ChatByDocumentWrapper(prompt):
     return '\n'.join([f"info:{item.page_content}\n" for item in list])
 
 
+vits = Vits()
+
+
+def GenerateAudioWrapper(prompt):
+    prompt = prompt.strip()
+    json_res = json.loads(prompt)
+    prompt = json_res.get('query')
+    if prompt == "":
+        return ""
+
+    output = vits.run(prompt)
+    return output
+
+
 tools = [
     Tool(
         func=GetChatRecords,
@@ -270,9 +287,14 @@ tools = [
         description='GenerateImage: Call this tool to interact with the stable diffusion API. What is the stable diffusion API useful for? useful for when you need to generate images or pictures. Parameters: [{"name": "query","type": "string","description": "In English, generate image of stable diffusion","required": True}] Format the arguments as a JSON object.'
     ),
     Tool(
+        func=GenerateAudioWrapper,
+        name='GenerateAudio',
+        description='GenerateAudio: Call this tool to interact with the vits audio API. What is the vits audio API useful for? 当您需要生成声音或音频时非常有用. Parameters: [{"name": "query","type": "string","description": "使用中文输入, 使用 vits api 生成语音","required": True}] Format the arguments as a JSON object.',
+    ),
+    Tool(
         func=DeepSearch.google_search,
         name='Search',
-        description='Search: Call this tool to interact with the google search API. What is the google search API useful for? useful for when you need to answer questions about current events. Parameters: [{"name": "query","type": "string","description": "search query of google","required": True}] Format the arguments as a JSON object.',
+        description='Search: Call this tool to interact with the google search API. What is the google search API useful for? useful for when you need to answer questions about current events or today Information. Parameters: [{"name": "query","type": "string","description": "search query of google","required": True}] Format the arguments as a JSON object.',
     ),
 ]
 
@@ -302,17 +324,18 @@ agent_executor = AgentExecutor.from_agent_and_tools(
     agent=agent, tools=tools, verbose=True, memory=memory, max_iterations=4)
 
 
-while True:
-    try:
-        message = input('User> ').strip()
-    except UnicodeDecodeError:
-        print('[ERROR] Encoding error in input')
-        continue
-    except KeyboardInterrupt:
-        exit(1)
-    try:
-        a = agent_executor.run('' + message)
-        print(a)
-    except Exception as e:
-        print('[ERROR] agent_executor run error', e)
-        continue
+if __name__ == '__main__':
+    while True:
+        try:
+            message = input('User> ').strip()
+        except UnicodeDecodeError:
+            print('[ERROR] Encoding error in input')
+            continue
+        except KeyboardInterrupt:
+            exit(1)
+        try:
+            a = agent_executor.run('' + message)
+            print(a)
+        except Exception as e:
+            print('[ERROR] agent_executor run error', e)
+            continue
