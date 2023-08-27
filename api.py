@@ -67,16 +67,8 @@ async def create_item(request: Request):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8001)
-    parser.add_argument("--num_gpus", type=int, default=1)
-    parser.add_argument("--use_checkpoint", type=bool, default=False)
-    parser.add_argument("--ptuning_checkpoint", type=str,
-                        default="ptuning/output/jsongen-chatglm2-6b-pt-1400-2e-2/checkpoint-6000")
-    parser.add_argument("--pre_seq_len", type=int, default=1400)
-    parser.add_argument("--use_agent", type=bool, default=False)
-    args = parser.parse_args()
 
-    print("[ARGS]" + "\nnum_gpus:" + str(args.num_gpus) + "\nuse_checkpoint:" + str(args.use_checkpoint) +
-          "\nuse_agent:" + str(args.use_agent) + "\nptuning_checkpoint:" + args.ptuning_checkpoint + "\npre_seq_len:" + str(args.pre_seq_len))
+    args = parser.parse_args()
 
     model = agent_executor
 
